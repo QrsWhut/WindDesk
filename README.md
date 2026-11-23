@@ -2,6 +2,13 @@
 
 WindDesk 是 macOS 14 及以上的个人行情应用。菜单栏面板和桌面小组件显示 Wind Alice Market 的黄金、指数和自选股行情。
 
+## 获取 Wind Alice API Key
+
+请在 Wind Alice Market 官网获取个人账号的 API Key。 [https://market.windalice.com/#/home](https://market.windalice.com/#/home)
+
+1. 在首页右上角点击「登录」，登录后点击同一位置的「我的账户」。
+2. 在「账户概览」找到「API 密钥」，点击「复制」，即可复制完整的 API Key。
+
 ## 从源码构建与安装
 
 在运行 macOS 14 或更新版本的 Mac 上，使用 Xcode Command Line Tools 从源码构建 WindDesk。如果还没有安装命令行工具，请先运行 `xcode-select --install`，等安装完成后执行以下命令。
@@ -17,12 +24,11 @@ cd WindDesk
 
 构建脚本会为应用和内嵌的小组件生成本机使用的临时签名（ad hoc）。当前版本已在 Apple Silicon、macOS 15.5 和 Swift 6.1.2 下构建验证。
 
-## 获取并配置 Wind API Key
+## 首次运行
 
-1. 从 [Wind Alice Market 首页](https://market.windalice.com/#/home) 登录自己的 Wind 账号。
-2. 进入「使用方法」，选择「统一 MCP」并点「一键配置」。Wind 会在配置中填入当前账号的 API Key，复制 Key 本身即可。 [Wind Alice 使用文档](https://market.windalice.com/#/faq)
-3. 点击菜单栏的 WindDesk 图标，打开「设置」，把 Key 粘贴到「Wind Alice API Key」并保存。然后点击「刷新」或按 `⌘R` 获取行情。
-4. 如需添加自选股，在「自选」页按名称或证券代码搜索并加入列表。
+1. 点击菜单栏的 WindDesk 图标，打开「设置」，将从 Wind Alice Market 复制的 Key 粘贴到「Wind Alice API Key」并保存。
+2. 点击「刷新」或按 `⌘R` 获取行情。
+3. 如需添加自选股，在「自选」页按名称或证券代码搜索并加入列表。
 
 ## 菜单栏
 
