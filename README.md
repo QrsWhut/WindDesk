@@ -2,22 +2,21 @@
 
 WindDesk 是 macOS 14 及以上的个人行情应用。菜单栏面板和桌面小组件显示 Wind Alice Market 的黄金、指数和自选股行情。
 
-## 快速开始
+## 下载与安装
 
-准备一台运行 macOS 14 或更新版本的 Mac、Xcode Command Line Tools 和自己的 Wind Alice Market API Key。首次安装命令行工具可运行 `xcode-select --install`。
+预构建版适用于配备 Apple 芯片且运行 macOS 14 或更新版本的 Mac，解压即可安装。 [下载 WindDesk 0.3.0（ZIP）](https://github.com/QrsWhut/WindDesk/releases/download/v0.3.0/WindDesk-0.3.0-macos-arm64.zip)
 
-```sh
-git clone https://github.com/QrsWhut/WindDesk.git
-cd WindDesk
-./scripts/build-app.sh
-open ./dist/WindDesk.app
-```
+1. 在访达中解压 ZIP，将 `WindDesk.app` 拖到个人应用程序目录 `~/Applications` 或系统应用程序目录 `/Applications`。可以按 `⌘⇧G` 输入目录路径。若个人目录还不存在，可先在自己的主目录下新建 `Applications` 文件夹。
+2. 从安装目录双击打开 `WindDesk.app`，在菜单栏找到 WindDesk 的折线图标。
 
-1. 点击菜单栏的 WindDesk 折线图标，打开「设置」。
-2. 填写自己的 Wind Alice API Key 并保存，然后点击「刷新」或按 `⌘R`。
-3. 在「自选」页按名称或证券代码搜索，把想看的股票加入列表。
+预构建版采用临时签名（ad hoc），尚未经过 Apple 公证。若首次打开时 macOS 无法验证开发者，确认下载来源后可在「系统设置 → 隐私与安全性」选择「仍要打开」。 [Apple 的打开说明](https://support.apple.com/zh-cn/102445)
 
-日常使用时，可以先退出应用，把 `dist/WindDesk.app` 移到 `~/Applications`，再从 Finder 打开。
+## 获取并配置 Wind API Key
+
+1. 从 [Wind Alice Market 首页](https://market.windalice.com/#/home) 登录自己的 Wind 账号。
+2. 进入「使用方法」，选择「统一 MCP」并点「一键配置」。Wind 会在配置中填入当前账号的 API Key，复制 Key 本身即可。 [Wind Alice 使用文档](https://market.windalice.com/#/faq)
+3. 点击菜单栏的 WindDesk 图标，打开「设置」，把 Key 粘贴到「Wind Alice API Key」并保存。然后点击「刷新」或按 `⌘R` 获取行情。
+4. 如需添加自选股，在「自选」页按名称或证券代码搜索并加入列表。
 
 ## 菜单栏
 
@@ -35,7 +34,13 @@ API Key 在运行时填写。应用将它以原文保存到当前用户的 `~/Li
 
 自选股超过 3 只时，可在「自选」页查看完整列表。点击「编辑」调整顺序，把想显示在大号组件上的股票移到前三。
 
-小组件读取菜单栏应用最近保存的行情快照。每次手动刷新和调整自选时，应用会通知 WidgetKit 更新。界面保留报价时间，实际更新时间由 macOS 调度。
+小组件读取菜单栏应用最近保存的行情快照。点击「刷新」后，WindDesk 从 Wind 获取行情并通知 WidgetKit 更新。调整自选也会同步到小组件。小组件的显示时机由 macOS 调度，报价旁会显示行情时间。
+
+## 登录启动与行情刷新
+
+WindDesk 默认不会在登录 Mac 时自动打开。需要时，可在「系统设置 → 通用 → 登录项与扩展 → 登录时打开」中点「＋」，选择已安装的 `WindDesk.app`。 [Apple 的登录项说明](https://support.apple.com/zh-sg/guide/mac-help/mh15189/mac)
+
+当前版本在手动点击「刷新」或按 `⌘R` 时获取新行情。登录时自动打开只负责启动应用，取数仍需手动刷新。应用未启动或已退出时，桌面小组件继续显示最近保存的报价和时间，直到菜单栏应用再次刷新。
 
 ## 报价口径
 
@@ -46,7 +51,15 @@ API Key 在运行时填写。应用将它以原文保存到当前用户的 `~/Li
 
 ## 从源码构建
 
-构建脚本使用 Xcode Command Line Tools 和 macOS SDK，生成包含 WidgetKit 扩展的 `dist/WindDesk.app`。当前版本已在 Apple Silicon、macOS 15.5 和 Swift 6.1.2 下构建验证。
+构建脚本使用 Xcode Command Line Tools 和 macOS SDK。首次安装命令行工具可运行 `xcode-select --install`。
+
+```sh
+git clone https://github.com/QrsWhut/WindDesk.git
+cd WindDesk
+./scripts/build-app.sh
+```
+
+构建后，将包含 WidgetKit 扩展的 `dist/WindDesk.app` 移到 `~/Applications` 或 `/Applications`，再从访达打开。当前版本已在 Apple Silicon、macOS 15.5 和 Swift 6.1.2 下构建验证。
 
 运行 `swift run WindDeskChecks` 可使用合成样例检查行情解析、缓存迁移、人民币报价优先级和小组件快照。Wind Alice 的可用行情与额度以账号权益为准。
 
