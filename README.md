@@ -7,7 +7,7 @@ WindDesk 是 macOS 14 及以上的个人行情应用。菜单栏面板和桌面�
 请在 Wind Alice Market 官网获取个人账号的 API Key。 [https://market.windalice.com/#/home](https://market.windalice.com/#/home)
 
 1. 在首页右上角点击「登录」，登录后点击同一位置的「我的账户」。
-2. 在「账户概览」找到「API 密钥」，点击「复制」，即可复制完整的 API Key。
+2. 在「我的套餐」页面找到「API 密钥」，点击「复制」，即可复制完整的 API Key。
 
 ## 从源码构建与安装
 
