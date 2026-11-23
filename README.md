@@ -2,14 +2,20 @@
 
 WindDesk 是 macOS 14 及以上的个人行情应用。菜单栏面板和桌面小组件显示 Wind Alice Market 的黄金、指数和自选股行情。
 
-## 下载与安装
+## 从源码构建与安装
 
-预构建版适用于配备 Apple 芯片且运行 macOS 14 或更新版本的 Mac，解压即可安装。 [下载 WindDesk 0.3.0（ZIP）](https://github.com/QrsWhut/WindDesk/releases/download/v0.3.0/WindDesk-0.3.0-macos-arm64.zip)
+在运行 macOS 14 或更新版本的 Mac 上，使用 Xcode Command Line Tools 从源码构建 WindDesk。如果还没有安装命令行工具，请先运行 `xcode-select --install`，等安装完成后执行以下命令。
 
-1. 在访达中解压 ZIP，将 `WindDesk.app` 拖到个人应用程序目录 `~/Applications` 或系统应用程序目录 `/Applications`。可以按 `⌘⇧G` 输入目录路径。若个人目录还不存在，可先在自己的主目录下新建 `Applications` 文件夹。
+```sh
+git clone https://github.com/QrsWhut/WindDesk.git
+cd WindDesk
+./scripts/build-app.sh
+```
+
+1. 构建完成后，将生成的 `dist/WindDesk.app` 拖到个人应用程序目录 `~/Applications` 或系统应用程序目录 `/Applications`。在访达按 `⌘⇧G` 可输入目录路径。如果个人目录还不存在，先在自己的主目录下新建 `Applications` 文件夹。
 2. 从安装目录双击打开 `WindDesk.app`，在菜单栏找到 WindDesk 的折线图标。
 
-预构建版采用临时签名（ad hoc），尚未经过 Apple 公证。若首次打开时 macOS 无法验证开发者，确认下载来源后可在「系统设置 → 隐私与安全性」选择「仍要打开」。 [Apple 的打开说明](https://support.apple.com/zh-cn/102445)
+构建脚本会为应用和内嵌的小组件生成本机使用的临时签名（ad hoc）。当前版本已在 Apple Silicon、macOS 15.5 和 Swift 6.1.2 下构建验证。
 
 ## 获取并配置 Wind API Key
 
@@ -49,17 +55,7 @@ WindDesk 默认不会在登录 Mac 时自动打开。需要时，可在「系统
 - 四个指数为纳斯达克 100 `NDX.GI`、科创 50 `000688.SH`、创业板 50 `399673.SZ`、上证指数 `000001.SH`。有前收盘价时按最新价计算涨跌幅，缺少前收盘价时使用 Wind 返回的涨跌幅。
 - 取数失败时保留最近报价及其原行情时间，菜单栏显示当次错误。
 
-## 从源码构建
-
-构建脚本使用 Xcode Command Line Tools 和 macOS SDK。首次安装命令行工具可运行 `xcode-select --install`。
-
-```sh
-git clone https://github.com/QrsWhut/WindDesk.git
-cd WindDesk
-./scripts/build-app.sh
-```
-
-构建后，将包含 WidgetKit 扩展的 `dist/WindDesk.app` 移到 `~/Applications` 或 `/Applications`，再从访达打开。当前版本已在 Apple Silicon、macOS 15.5 和 Swift 6.1.2 下构建验证。
+## 开发与签名
 
 运行 `swift run WindDeskChecks` 可使用合成样例检查行情解析、缓存迁移、人民币报价优先级和小组件快照。Wind Alice 的可用行情与额度以账号权益为准。
 
