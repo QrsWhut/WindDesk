@@ -3,25 +3,40 @@ import Foundation
 
 public enum WidgetQuoteCache {
     public static let kind = "com.winddesk.menubar.market"
+    public static let defaultReloadInterval: TimeInterval = 60 * 60
 
     public struct Entry: Codable, Equatable {
         public let snapshot: MarketSnapshot
         public let watchlist: [WatchItem]
+        public let refreshIntervalMinutes: Int?
 
-        public init(snapshot: MarketSnapshot, watchlist: [WatchItem]) {
+        public init(snapshot: MarketSnapshot, watchlist: [WatchItem], refreshIntervalMinutes: Int? = nil) {
             self.snapshot = snapshot
             self.watchlist = watchlist
+            self.refreshIntervalMinutes = refreshIntervalMinutes
+        }
+
+        public var reloadInterval: TimeInterval {
+            guard let refreshIntervalMinutes, (5...60).contains(refreshIntervalMinutes) else {
+                return WidgetQuoteCache.defaultReloadInterval
+            }
+            return TimeInterval(refreshIntervalMinutes * 60)
         }
     }
 
     public static func read() -> Entry? {
-        cacheURL().flatMap(read(from:))
+        try? readSnapshot()
+    }
+
+    package static func readSnapshot() throws -> Entry {
+        guard let url = cacheURL() else { throw CocoaError(.fileReadUnknown) }
+        return try read(from: url)
     }
 
     @discardableResult
     public static func write(_ entry: Entry) throws -> Bool {
         guard let url = cacheURL() else { throw CocoaError(.fileWriteNoPermission) }
-        if read(from: url) == entry { return false }
+        if (try? read(from: url)) == entry { return false }
         if usesLocalCache {
             try FileManager.default.createDirectory(
                 at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
@@ -36,9 +51,8 @@ public enum WidgetQuoteCache {
         return true
     }
 
-    private static func read(from url: URL) -> Entry? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(Entry.self, from: data)
+    private static func read(from url: URL) throws -> Entry {
+        try JSONDecoder().decode(Entry.self, from: Data(contentsOf: url))
     }
 
     private static var usesLocalCache: Bool {

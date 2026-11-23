@@ -1,3 +1,4 @@
+import OSLog
 import SwiftUI
 import WidgetKit
 import WindDeskCore
@@ -9,6 +10,8 @@ private struct QuoteEntry: TimelineEntry {
 }
 
 private struct QuoteProvider: TimelineProvider {
+    private static let logger = Logger(subsystem: "com.winddesk.menubar.widget", category: "Timeline")
+
     func placeholder(in context: Context) -> QuoteEntry {
         QuoteEntry(date: .now, cache: nil, isPlaceholder: true)
     }
@@ -19,9 +22,21 @@ private struct QuoteProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<QuoteEntry>) -> Void) {
-        let entry = QuoteEntry(date: .now, cache: WidgetQuoteCache.read())
-        // The app asks WidgetKit to reload after writing. This read recovers if a reload is deferred.
-        completion(Timeline(entries: [entry], policy: .after(entry.date.addingTimeInterval(60 * 60))))
+        let cache: WidgetQuoteCache.Entry?
+        do {
+            cache = try WidgetQuoteCache.readSnapshot()
+            let time = cache?.snapshot.lastRefresh?.ISO8601Format() ?? "none"
+            Self.logger.notice("getTimeline cache=available lastRefresh=\(time, privacy: .public)")
+        } catch {
+            cache = nil
+            let error = error as NSError
+            Self.logger.notice("getTimeline cache=unavailable domain=\(error.domain, privacy: .public) code=\(error.code, privacy: .public)")
+        }
+        let entry = QuoteEntry(date: .now, cache: cache)
+        // The app requests a reload after writing. Also schedule a local reread in
+        // case WidgetKit defers or coalesces that request.
+        let interval = cache?.reloadInterval ?? WidgetQuoteCache.defaultReloadInterval
+        completion(Timeline(entries: [entry], policy: .after(entry.date.addingTimeInterval(interval))))
     }
 }
 
@@ -86,10 +101,18 @@ private struct QuoteWidgetView: View {
             Text("伦敦金现货").fontWeight(.semibold)
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 4)
-            Text("Wind Alice · 快照").font(.system(size: 10)).foregroundStyle(.secondary)
+            Text(snapshotLabel).font(.system(size: 10)).monospacedDigit().foregroundStyle(.secondary)
         }
         .font(.system(size: 12))
         .lineLimit(1)
+    }
+
+    private var snapshotLabel: String {
+        guard let lastRefresh = snapshot.lastRefresh else { return "Wind Alice · 快照" }
+        let format: Date.FormatStyle = Calendar.current.isDate(lastRefresh, inSameDayAs: entry.date)
+            ? .dateTime.hour().minute().second()
+            : .dateTime.month(.twoDigits).day(.twoDigits).hour().minute()
+        return "Wind Alice · 快照 " + lastRefresh.formatted(format)
     }
 
     private var goldPrices: some View {

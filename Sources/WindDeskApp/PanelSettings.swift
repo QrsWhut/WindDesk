@@ -62,10 +62,29 @@ struct PanelSettings: View {
                 if let error = store.settingsError { PanelNotice(text: error) }
             }
             Divider()
+            VStack(alignment: .leading, spacing: 6) {
+                LabeledContent {
+                    Picker("自动刷新间隔", selection: $store.autoRefreshInterval) {
+                        ForEach(AutoRefreshInterval.allCases, id: \.rawValue) { interval in
+                            Text(interval.title).tag(interval)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .controlSize(.small)
+                    .fixedSize()
+                } label: {
+                    Label("行情自动刷新", systemImage: "arrow.clockwise").font(.headline)
+                }
+                Text("保存 Key 后，WindDesk 会在运行期间按所选间隔取数。桌面小组件的更新时间由 macOS 决定。")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Divider()
             DisclosureGroup("桌面小组件") {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("按住 Control 键点按桌面，选择「编辑小组件」，搜索 WindDesk 后添加。")
-                    Text("在菜单栏刷新后，小组件会读取最新快照。中号显示金价与指数，大号还显示前三只自选股。")
+                    Text("中号显示金价与指数，大号还显示前三只自选股。手动或自动刷新后，小组件会读取最近保存的行情。")
                     if let error = store.widgetError { PanelNotice(text: error) }
                 }
                 .font(.callout).foregroundStyle(.secondary)
