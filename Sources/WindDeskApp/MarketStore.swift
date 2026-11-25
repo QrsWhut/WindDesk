@@ -15,18 +15,29 @@ enum AutoRefreshInterval: Int, CaseIterable {
     var title: String { self == .off ? "关闭" : "\(rawValue) 分钟" }
 }
 
+enum WatchlistKind {
+    case indices, stocks
+
+    var preferenceKey: String { self == .indices ? "index-watchlist" : "watchlist" }
+    var section: QuoteSection { self == .indices ? .indices : .stocks }
+    var quotes: WritableKeyPath<MarketSnapshot, [WindQuote]> { self == .indices ? \.indices : \.stocks }
+}
+
 @MainActor
 @Observable
 final class MarketStore {
     private static let autoRefreshPreference = "auto-refresh-minutes"
     private static let refreshResultPreference = "market-refresh-result"
+    private static let widgetDisplayPreference = "widget-display-settings"
     private static let widgetLog = Logger(subsystem: "com.winddesk.menubar", category: "WidgetSync")
 
     private(set) var hasKey = false
     private(set) var refreshStage: String?
     var isRefreshing: Bool { refreshStage != nil }
     private(set) var snapshot = MarketSnapshot()
+    private(set) var indexWatchlist = WatchItem.indices
     private(set) var watchlist: [WatchItem] = []
+    private(set) var widgetDisplaySettings = WidgetDisplaySettings()
     private(set) var issues: [QuoteSection: String] = [:]
     private(set) var searchResults: [WatchItem] = []
     private(set) var searchError: String?
@@ -57,7 +68,9 @@ final class MarketStore {
         let savedInterval = defaults.object(forKey: Self.autoRefreshPreference) as? Int
         autoRefreshInterval = savedInterval.flatMap(AutoRefreshInterval.init(rawValue:)) ?? .tenMinutes
         snapshot = decode(MarketSnapshot.self, key: "market-snapshot") ?? .init()
-        watchlist = decode([WatchItem].self, key: "watchlist") ?? []
+        indexWatchlist = decode([WatchItem].self, key: WatchlistKind.indices.preferenceKey) ?? WatchItem.indices
+        watchlist = decode([WatchItem].self, key: WatchlistKind.stocks.preferenceKey) ?? []
+        widgetDisplaySettings = decode(WidgetDisplaySettings.self, key: Self.widgetDisplayPreference)?.normalized ?? .init()
         do {
             apiKey = try CredentialStore.read()
             hasKey = apiKey != nil
@@ -70,6 +83,8 @@ final class MarketStore {
                 if let section = QuoteSection(rawValue: name) { issues[section] = message }
             }
         }
+        if indexWatchlist.isEmpty { issues[.indices] = nil }
+        if watchlist.isEmpty { issues[.stocks] = nil }
         publishWidget(forceReload: true)
         scheduleAutoRefresh(alignWithLastAttempt: true)
     }
@@ -186,23 +201,24 @@ final class MarketStore {
         receivedResult = true
         applyPrecious(precious)
         if let error = accountError(in: precious.gold) ?? accountError(in: precious.goldCNY) ?? accountError(in: precious.exchangeRate) {
-            markSkipped(.indices, error: error)
+            if !indexWatchlist.isEmpty { markSkipped(.indices, error: error) }
             if !watchlist.isEmpty { markSkipped(.stocks, error: error) }
             return
         }
 
-        refreshStage = "指数"
-        guard revision == keyRevision, !Task.isCancelled else { return }
-        let indexResult = await collect { try await market.indices(apiKey: apiKey) }
-        guard revision == keyRevision, !Task.isCancelled else { return }
-        let indexCodes = WatchItem.indices.map(\.code)
-        applyBatch(indexResult, section: .indices, path: \.indices, requested: Set(indexCodes), order: indexCodes)
+        let indexCodes = indexWatchlist.map(\.code)
+        if !indexCodes.isEmpty {
+            refreshStage = "指数"
+            let indexResult = await collect { try await market.indices(indexCodes, apiKey: apiKey) }
+            guard revision == keyRevision, !Task.isCancelled else { return }
+            applyBatch(indexResult, section: .indices, path: \.indices, requested: Set(indexCodes), order: indexWatchlist.map(\.code))
+            if !watchlist.isEmpty, let error = accountError(in: indexResult) {
+                markSkipped(.stocks, error: error)
+                return
+            }
+        }
         guard !watchlist.isEmpty else {
             setIssue(nil, for: .stocks)
-            return
-        }
-        if let error = accountError(in: indexResult) {
-            markSkipped(.stocks, error: error)
             return
         }
 
@@ -339,7 +355,7 @@ final class MarketStore {
         defaults.set(["attemptedAt": Date(), "results": lines], forKey: "wind-london-gold-check")
     }
 
-    func search(_ text: String) async {
+    func search(_ text: String, in kind: WatchlistKind = .stocks) async {
         guard !isWindRequestInProgress else { return }
         searchResults = []
         searchError = nil
@@ -353,43 +369,73 @@ final class MarketStore {
         isSearching = true
         defer { isSearching = false }
         do {
-            let matches = try await market.searchStocks(query, apiKey: apiKey)
+            let matches = switch kind {
+            case .indices: try await market.searchIndices(query, apiKey: apiKey)
+            case .stocks: try await market.searchStocks(query, apiKey: apiKey)
+            }
             guard keyRevision == revision, !Task.isCancelled else { return }
             searchResults = matches
-            if matches.isEmpty { searchError = "未找到匹配的股票。可尝试完整 Wind 代码。" }
+            if matches.isEmpty {
+                let category = kind == .indices ? "指数" : "股票"
+                searchError = "未找到匹配的\(category)。可尝试完整 Wind 代码。"
+            }
         } catch {
             guard keyRevision == revision, !Task.isCancelled else { return }
             searchError = error.localizedDescription
         }
     }
 
-    func add(_ item: WatchItem) {
-        guard !watchlist.contains(where: { $0.code == item.code }) else { return }
-        watchlist.append(item)
-        persist(watchlist, key: "watchlist")
+    func add(_ item: WatchItem, to kind: WatchlistKind = .stocks) {
+        let items = selection(for: kind)
+        guard !items.contains(where: { $0.code == item.code }) else { return }
+        saveSelection(items + [item], for: kind)
+    }
+
+    func remove(_ item: WatchItem, from kind: WatchlistKind = .stocks) {
+        saveSelection(selection(for: kind).filter { $0.code != item.code }, for: kind)
+    }
+
+    func move(_ item: WatchItem, by offset: Int, in kind: WatchlistKind = .stocks) {
+        var items = selection(for: kind)
+        guard let index = items.firstIndex(of: item), items.indices.contains(index + offset) else { return }
+        items.swapAt(index, index + offset)
+        saveSelection(items, for: kind)
+    }
+
+    private func selection(for kind: WatchlistKind) -> [WatchItem] {
+        kind == .indices ? indexWatchlist : watchlist
+    }
+
+    private func saveSelection(_ items: [WatchItem], for kind: WatchlistKind) {
+        switch kind {
+        case .indices: indexWatchlist = items
+        case .stocks: watchlist = items
+        }
+        persist(items, key: kind.preferenceKey)
+        let retainedCodes = Set(items.map(\.code))
+        let quotes = snapshot[keyPath: kind.quotes].filter { retainedCodes.contains($0.code) }
+        if quotes != snapshot[keyPath: kind.quotes] {
+            snapshot[keyPath: kind.quotes] = quotes
+            persist(snapshot, key: "market-snapshot")
+        }
+        if items.isEmpty { setIssue(nil, for: kind.section) }
         publishWidget()
     }
 
-    func remove(_ item: WatchItem) {
-        watchlist.removeAll(where: { $0.code == item.code })
-        snapshot.stocks.removeAll(where: { $0.code == item.code })
-        if watchlist.isEmpty { issues[.stocks] = nil }
-        persist(watchlist, key: "watchlist")
-        persist(snapshot, key: "market-snapshot")
-        publishWidget()
-    }
-
-    func move(_ item: WatchItem, by offset: Int) {
-        guard let index = watchlist.firstIndex(of: item), watchlist.indices.contains(index + offset) else { return }
-        watchlist.swapAt(index, index + offset)
-        persist(watchlist, key: "watchlist")
+    func setWidgetDisplaySettings(_ settings: WidgetDisplaySettings) {
+        let normalized = settings.normalized
+        guard normalized != widgetDisplaySettings else { return }
+        widgetDisplaySettings = normalized
+        persist(normalized, key: Self.widgetDisplayPreference)
         publishWidget()
     }
 
     private func publishWidget(forceReload: Bool = false) {
         do {
             let interval = autoRefreshInterval == .off ? nil : autoRefreshInterval.rawValue
-            let entry = WidgetQuoteCache.Entry(snapshot: snapshot, watchlist: watchlist, refreshIntervalMinutes: interval)
+            let entry = WidgetQuoteCache.Entry(snapshot: snapshot, watchlist: watchlist,
+                                               indexWatchlist: indexWatchlist, refreshIntervalMinutes: interval,
+                                               displaySettings: widgetDisplaySettings)
             let changed = try WidgetQuoteCache.write(entry)
             widgetError = nil
             if changed || forceReload {

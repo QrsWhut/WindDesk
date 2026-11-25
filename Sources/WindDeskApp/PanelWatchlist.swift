@@ -3,6 +3,7 @@ import WindDeskCore
 
 struct PanelWatchlist: View {
     @Bindable var store: MarketStore
+    let kind: WatchlistKind
     let openSettings: () -> Void
 
     @State private var query = ""
@@ -10,13 +11,17 @@ struct PanelWatchlist: View {
     @State private var editing = false
     @State private var searchPending = false
 
+    private var isIndex: Bool { kind == .indices }
+    private var items: [WatchItem] { isIndex ? store.indexWatchlist : store.watchlist }
+    private var instrumentLabel: String { isIndex ? "指数" : "证券" }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("按证券名称或代码搜索", text: $query)
+                TextField("按\(instrumentLabel)名称或代码搜索", text: $query)
                     .textFieldStyle(.plain).onSubmit { search() }
-                    .accessibilityLabel("证券名称或代码")
+                    .accessibilityLabel("\(instrumentLabel)名称或代码")
                 if !query.isEmpty {
                     Button {
                         query = ""
@@ -31,7 +36,7 @@ struct PanelWatchlist: View {
             .padding(8).background(.background, in: RoundedRectangle(cornerRadius: 8))
             if !store.hasKey {
                 HStack {
-                    Text("配置 Wind Alice 后可搜索证券。").font(.caption).foregroundStyle(.secondary)
+                    Text("配置 Wind Alice 后可搜索\(instrumentLabel)。").font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Button("去设置", action: openSettings).controlSize(.small)
                 }
@@ -40,15 +45,17 @@ struct PanelWatchlist: View {
                 if let error = store.searchError {
                     PanelNotice(text: error)
                 } else if !store.searchResults.isEmpty {
+                    let selected = Set(items.map(\.code))
                     VStack(alignment: .leading, spacing: 5) {
                         Text("搜索结果").font(.headline)
                         ForEach(store.searchResults) { item in
                             HStack {
                                 identity(item)
                                 Spacer()
-                                let added = store.watchlist.contains { $0.id == item.id }
-                                Button(added ? "已添加" : "添加") { store.add(item) }
+                                let added = selected.contains(item.code)
+                                Button(added ? "已添加" : "添加") { store.add(item, to: kind) }
                                     .controlSize(.small).disabled(added)
+                                    .help("添加后随下次行情刷新获取报价")
                             }
                             if item.id != store.searchResults.last?.id { Divider() }
                         }
@@ -57,44 +64,48 @@ struct PanelWatchlist: View {
             }
 
             HStack {
-                Text("我的自选股").font(.headline)
+                Text(isIndex ? "我的指数" : "我的自选股").font(.headline)
                 Spacer()
-                if !store.watchlist.isEmpty {
+                if !items.isEmpty {
                     Button(editing ? "完成" : "编辑") { editing.toggle() }
-                        .controlSize(.small).accessibilityLabel(editing ? "完成自选股编辑" : "编辑自选股")
+                        .controlSize(.small)
+                        .accessibilityLabel((editing ? "完成编辑" : "编辑") + (isIndex ? "指数" : "自选股"))
                 }
             }
-            if store.watchlist.isEmpty {
-                Text("搜索证券后，点击「添加」即可加入自选。")
+            if items.isEmpty {
+                Text(isIndex ? "搜索指数名称或代码后，点击「添加」。" : "搜索证券后，点击「添加」即可加入自选。")
                     .font(.callout).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                let quotesByCode = Dictionary(store.snapshot.stocks.map { ($0.code, $0) }, uniquingKeysWith: { first, _ in first })
+                Text("桌面小组件按列表顺序显示，可在设置中调整显示数量。")
+                    .font(.caption).foregroundStyle(.secondary)
+                let quotes = isIndex ? store.snapshot.indices : store.snapshot.stocks
+                let quotesByCode = Dictionary(quotes.map { ($0.code, $0) }, uniquingKeysWith: { first, _ in first })
                 LazyVStack(spacing: 0) {
-                    ForEach(store.watchlist) { item in
+                    ForEach(items) { item in
                         if editing {
                             HStack(spacing: 6) {
                                 identity(item)
                                 Spacer()
-                                action("上移" + item.name, symbol: "chevron.up") { store.move(item, by: -1) }
-                                    .disabled(item.id == store.watchlist.first?.id)
-                                action("下移" + item.name, symbol: "chevron.down") { store.move(item, by: 1) }
-                                    .disabled(item.id == store.watchlist.last?.id)
-                                action("移除" + item.name, symbol: "minus.circle") { store.remove(item) }
+                                action("上移" + item.name, symbol: "chevron.up") { store.move(item, by: -1, in: kind) }
+                                    .disabled(item.id == items.first?.id)
+                                action("下移" + item.name, symbol: "chevron.down") { store.move(item, by: 1, in: kind) }
+                                    .disabled(item.id == items.last?.id)
+                                action("移除" + item.name, symbol: "minus.circle") { store.remove(item, from: kind) }
                             }
                             .padding(.vertical, 5)
                         } else {
-                            PanelQuoteRow(item: item, quote: quotesByCode[item.code], isIndex: false)
+                            PanelQuoteRow(item: item, quote: quotesByCode[item.code], isIndex: isIndex)
                         }
-                        if item.id != store.watchlist.last?.id { Divider() }
+                        if item.id != items.last?.id { Divider() }
                     }
                 }
                 .padding(.horizontal, 10)
                 .background(.background, in: RoundedRectangle(cornerRadius: 9))
             }
-            if let error = store.issues[.stocks] { PanelNotice(text: error) }
+            if let error = store.issues[isIndex ? .indices : .stocks] { PanelNotice(text: error) }
         }
-        .onChange(of: store.watchlist.isEmpty) { _, empty in if empty { editing = false } }
+        .onChange(of: items.isEmpty) { _, empty in if empty { editing = false } }
     }
 
     private func identity(_ item: WatchItem) -> some View {
@@ -121,7 +132,7 @@ struct PanelWatchlist: View {
         submitted = text
         searchPending = true
         Task {
-            await store.search(text)
+            await store.search(text, in: kind)
             searchPending = false
         }
     }

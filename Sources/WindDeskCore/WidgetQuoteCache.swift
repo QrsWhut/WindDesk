@@ -8,12 +8,29 @@ public enum WidgetQuoteCache {
     public struct Entry: Codable, Equatable {
         public let snapshot: MarketSnapshot
         public let watchlist: [WatchItem]
+        public let indexWatchlist: [WatchItem]
         public let refreshIntervalMinutes: Int?
+        public let displaySettings: WidgetDisplaySettings
 
-        public init(snapshot: MarketSnapshot, watchlist: [WatchItem], refreshIntervalMinutes: Int? = nil) {
+        public init(
+            snapshot: MarketSnapshot, watchlist: [WatchItem],
+            indexWatchlist: [WatchItem] = WatchItem.indices, refreshIntervalMinutes: Int? = nil,
+            displaySettings: WidgetDisplaySettings = .init()
+        ) {
             self.snapshot = snapshot
             self.watchlist = watchlist
+            self.indexWatchlist = indexWatchlist
             self.refreshIntervalMinutes = refreshIntervalMinutes
+            self.displaySettings = displaySettings.normalized
+        }
+
+        public init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            snapshot = try values.decode(MarketSnapshot.self, forKey: .snapshot)
+            watchlist = try values.decode([WatchItem].self, forKey: .watchlist)
+            indexWatchlist = try values.decodeIfPresent([WatchItem].self, forKey: .indexWatchlist) ?? WatchItem.indices
+            refreshIntervalMinutes = try values.decodeIfPresent(Int.self, forKey: .refreshIntervalMinutes)
+            displaySettings = (try? values.decode(WidgetDisplaySettings.self, forKey: .displaySettings))?.normalized ?? .init()
         }
 
         public var reloadInterval: TimeInterval {

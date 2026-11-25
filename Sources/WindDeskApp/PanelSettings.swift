@@ -1,4 +1,5 @@
 import SwiftUI
+import WindDeskCore
 
 struct PanelSettings: View {
     @Bindable var store: MarketStore
@@ -81,16 +82,7 @@ struct PanelSettings: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Divider()
-            DisclosureGroup("桌面小组件") {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("按住 Control 键点按桌面，选择「编辑小组件」，搜索 WindDesk 后添加。")
-                    Text("中号显示金价与指数，大号还显示前三只自选股。手动或自动刷新后，小组件会读取最近保存的行情。")
-                    if let error = store.widgetError { PanelNotice(text: error) }
-                }
-                .font(.callout).foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 6)
-            }
+            widgetSettings
             Divider()
             DisclosureGroup("连接诊断") {
                 VStack(alignment: .leading, spacing: 7) {
@@ -110,6 +102,56 @@ struct PanelSettings: View {
             }
         }
         .onDisappear { draft = "" }
+    }
+
+    private var widgetSettings: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Label("桌面小组件", systemImage: "square.grid.2x2").font(.headline)
+            widgetCountRow("中号", capacity: WidgetDisplaySettings.mediumCapacity, keyPath: \.medium)
+            widgetCountRow("大号", capacity: WidgetDisplaySettings.largeCapacity, keyPath: \.large)
+            Text("数量设为 0 可隐藏对应类别。名额用满时，先减少另一类的数量。")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("按住 Control 键点按桌面，选择「编辑小组件」，搜索 WindDesk 后添加。")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let error = store.widgetError { PanelNotice(text: error) }
+        }
+    }
+
+    private func widgetCountRow(
+        _ size: String, capacity: Int,
+        keyPath: WritableKeyPath<WidgetDisplaySettings, WidgetDisplaySettings.Counts>
+    ) -> some View {
+        let counts = Binding(
+            get: { store.widgetDisplaySettings[keyPath: keyPath] },
+            set: { counts in
+                var settings = store.widgetDisplaySettings
+                settings[keyPath: keyPath] = counts
+                store.setWidgetDisplaySettings(settings)
+            }
+        )
+        return HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(size).font(.callout.weight(.medium))
+                Text("最多 \(capacity) 项").font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            Picker("指数", selection: counts.indices) {
+                ForEach(0...max(0, capacity - counts.stocks.wrappedValue), id: \.self) { count in
+                    Text(count.formatted()).tag(count)
+                }
+            }
+            .accessibilityLabel("\(size)指数显示数量")
+            Picker("自选股", selection: counts.stocks) {
+                ForEach(0...max(0, capacity - counts.indices.wrappedValue), id: \.self) { count in
+                    Text(count.formatted()).tag(count)
+                }
+            }
+            .accessibilityLabel("\(size)自选股显示数量")
+        }
+        .pickerStyle(.menu)
+        .controlSize(.small)
     }
 
     private var requestInProgress: Bool {

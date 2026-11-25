@@ -48,7 +48,7 @@ struct WindDeskWidget: Widget {
                 .containerBackground(for: .widget) { Color(nsColor: .windowBackgroundColor) }
         }
         .configurationDisplayName("黄金与市场指数")
-        .description("查看两种单位的伦敦金、四个市场指数和自选股的最新行情快照。")
+        .description("查看两种单位的伦敦金、自选指数和自选股的最新行情快照。")
         .supportedFamilies([.systemMedium, .systemLarge])
         .contentMarginsDisabled()
     }
@@ -61,10 +61,16 @@ private struct QuoteWidgetView: View {
 
     private var isLarge: Bool { family == .systemLarge }
     private var snapshot: MarketSnapshot { entry.cache?.snapshot ?? MarketSnapshot() }
-    private var watchlist: [WatchItem] { Array((entry.cache?.watchlist ?? []).prefix(3)) }
+    private var counts: WidgetDisplaySettings.Counts {
+        let settings = entry.cache?.displaySettings ?? WidgetDisplaySettings()
+        return isLarge ? settings.large : settings.medium
+    }
+    private var indices: [WatchItem] { Array((entry.cache?.indexWatchlist ?? WatchItem.indices).prefix(counts.indices)) }
+    private var watchlist: [WatchItem] { Array((entry.cache?.watchlist ?? []).prefix(counts.stocks)) }
     private var hasQuotes: Bool {
-        snapshot.gold != nil || snapshot.goldCNYPerGram != nil || !snapshot.indices.isEmpty
-            || (isLarge && watchlist.contains { item in snapshot.stocks.contains { $0.code == item.code } })
+        snapshot.gold != nil || snapshot.goldCNYPerGram != nil
+            || indices.contains { item in snapshot.indices.contains { $0.code == item.code } }
+            || watchlist.contains { item in snapshot.stocks.contains { $0.code == item.code } }
     }
 
     var body: some View {
@@ -80,11 +86,13 @@ private struct QuoteWidgetView: View {
                 VStack(alignment: .leading, spacing: isLarge ? 8 : 5) {
                     goldHeader
                     goldPrices
-                    Divider()
-                    if isLarge {
-                        expandedMarkets
-                    } else {
-                        compactIndices
+                    if counts.indices > 0 || counts.stocks > 0 {
+                        Divider()
+                        if isLarge {
+                            expandedMarkets
+                        } else {
+                            compactMarkets
+                        }
                     }
                 }
                 .redacted(reason: entry.isPlaceholder ? .placeholder : [])
@@ -151,28 +159,54 @@ private struct QuoteWidgetView: View {
         .accessibilityLabel(priceLabel + spokenTime(time, label: timeLabel ?? "报价", hasQuote: price != nil))
     }
 
-    private var compactIndices: some View {
-        let items = WatchItem.indices
-        return VStack(spacing: 5) {
-            ForEach(Array(stride(from: 0, to: items.count, by: 2)), id: \.self) { first in
-                HStack(spacing: 12) {
-                    ForEach(items[first..<min(first + 2, items.count)], content: compactIndex)
+    @ViewBuilder private var compactMarkets: some View {
+        let indexRows = indices.map { item in
+            (item: item, quote: snapshot.indices.first { $0.code == item.code }, unit: Optional("点"))
+        }
+        let stockRows = watchlist.map { item in
+            let quote = snapshot.stocks.first { $0.code == item.code }
+            return (item: item, quote: quote, unit: quote?.currency ?? quote?.unit)
+        }
+        let rows = indexRows + stockRows
+        if rows.isEmpty {
+            marketHint("在菜单栏添加关注的指数或自选股。")
+        } else {
+            VStack(spacing: 5) {
+                ForEach(Array(stride(from: 0, to: rows.count, by: 2)), id: \.self) { first in
+                    HStack(spacing: 12) {
+                        ForEach(first..<min(first + 2, rows.count), id: \.self) { index in
+                            let row = rows[index]
+                            compactMarket(row.item, quote: row.quote, unit: row.unit)
+                        }
+                        if first + 1 == rows.count {
+                            Spacer(minLength: 0).frame(maxWidth: .infinity)
+                        }
+                    }
                 }
             }
         }
     }
 
-    private func compactIndex(_ item: WatchItem) -> some View {
-        let quote = snapshot.indices.first { $0.code == item.code }
-        return VStack(alignment: .leading, spacing: 0) {
+    private func marketHint(_ title: String) -> some View {
+        Text(title)
+            .font(.caption).foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func compactMarket(_ item: WatchItem, quote: WindQuote?, unit: String?) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 2) {
                 Text(item.name).font(.system(size: 11, weight: .medium))
                 Spacer(minLength: 1)
                 quoteTimeLabel(quote?.quotedAt, size: 9)
             }
             HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text(formatted(quote?.price)).font(.system(size: 13, weight: .semibold))
+                Text(formatted(quote?.price, digits: unit == "点" ? 2...2 : 2...4))
+                    .font(.system(size: 13, weight: .semibold))
                     .monospacedDigit()
+                if let unit, unit != "点", quote != nil {
+                    Text(unit).font(.system(size: 8)).foregroundStyle(.secondary)
+                }
                 Spacer(minLength: 1)
                 change(quote?.changePercent)
             }
@@ -180,26 +214,37 @@ private struct QuoteWidgetView: View {
         .lineLimit(1).minimumScaleFactor(0.82)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(spokenMarket(item, quote: quote, unit: "点"))
+        .accessibilityLabel(spokenMarket(item, quote: quote, unit: unit))
     }
 
     @ViewBuilder private var expandedMarkets: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            sectionHeading("市场指数")
-            ForEach(WatchItem.indices) { item in
-                marketRow(item, quote: snapshot.indices.first { $0.code == item.code }, unit: "点")
+        if counts.indices > 0 {
+            VStack(alignment: .leading, spacing: 4) {
+                let total = entry.cache?.indexWatchlist.count ?? indices.count
+                sectionHeading("市场指数", detail: total > indices.count ? "前 \(indices.count) 个" : nil)
+                if indices.isEmpty {
+                    marketHint("在菜单栏的「指数」页添加指数。")
+                } else {
+                    ForEach(indices) { item in
+                        marketRow(item, quote: snapshot.indices.first { $0.code == item.code }, unit: "点")
+                    }
+                }
             }
         }
-        Divider()
-        VStack(alignment: .leading, spacing: 4) {
-            let total = entry.cache?.watchlist.count ?? 0
-            sectionHeading("自选股", detail: total > watchlist.count ? "前 \(watchlist.count) 只" : nil)
-            if watchlist.isEmpty {
-                Text("在菜单栏添加自选股。").font(.caption).foregroundStyle(.secondary)
-            } else {
-                ForEach(watchlist) { item in
-                    let quote = snapshot.stocks.first { $0.code == item.code }
-                    marketRow(item, quote: quote, unit: quote?.currency ?? quote?.unit)
+        if counts.indices > 0 && counts.stocks > 0 {
+            Divider()
+        }
+        if counts.stocks > 0 {
+            VStack(alignment: .leading, spacing: 4) {
+                let total = entry.cache?.watchlist.count ?? 0
+                sectionHeading("自选股", detail: total > watchlist.count ? "前 \(watchlist.count) 只" : nil)
+                if watchlist.isEmpty {
+                    marketHint("在菜单栏的「自选」页添加股票。")
+                } else {
+                    ForEach(watchlist) { item in
+                        let quote = snapshot.stocks.first { $0.code == item.code }
+                        marketRow(item, quote: quote, unit: quote?.currency ?? quote?.unit)
+                    }
                 }
             }
         }

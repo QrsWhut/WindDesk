@@ -4,6 +4,7 @@ import WindDeskCore
 
 private enum PanelTab: String, CaseIterable {
     case markets = "行情"
+    case indices = "指数"
     case watchlist = "自选"
     case settings = "设置"
 }
@@ -50,8 +51,10 @@ struct PanelView: View {
                     switch tab {
                     case .markets:
                         overview
+                    case .indices:
+                        PanelWatchlist(store: store, kind: .indices, openSettings: { tab = .settings })
                     case .watchlist:
-                        PanelWatchlist(store: store, openSettings: { tab = .settings })
+                        PanelWatchlist(store: store, kind: .stocks, openSettings: { tab = .settings })
                     case .settings:
                         PanelSettings(store: store, showMarkets: { tab = .markets })
                     }
@@ -80,8 +83,17 @@ struct PanelView: View {
         }
         GoldQuoteCard(snapshot: store.snapshot)
         VStack(alignment: .leading, spacing: 6) {
-            Text("市场指数").font(.headline)
-            quoteList(WatchItem.indices, quotes: store.snapshot.indices, isIndex: true)
+            HStack {
+                Text("市场指数").font(.headline)
+                Spacer()
+                Button(store.indexWatchlist.isEmpty ? "添加指数" : "管理指数") { tab = .indices }
+                    .controlSize(.small)
+            }
+            if store.indexWatchlist.isEmpty {
+                Text("尚未添加指数。").font(.callout).foregroundStyle(.secondary)
+            } else {
+                quoteList(store.indexWatchlist, quotes: store.snapshot.indices, isIndex: true)
+            }
         }
         VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -114,9 +126,10 @@ struct PanelView: View {
     }
 
     private func quoteList(_ items: [WatchItem], quotes: [WindQuote], isIndex: Bool) -> some View {
-        VStack(spacing: 0) {
+        let quotesByCode = Dictionary(quotes.map { ($0.code, $0) }, uniquingKeysWith: { first, _ in first })
+        return LazyVStack(spacing: 0) {
             ForEach(items) { item in
-                PanelQuoteRow(item: item, quote: quotes.first { $0.code == item.code }, isIndex: isIndex)
+                PanelQuoteRow(item: item, quote: quotesByCode[item.code], isIndex: isIndex)
                 if item.id != items.last?.id { Divider() }
             }
         }

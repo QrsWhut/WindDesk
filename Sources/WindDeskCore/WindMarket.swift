@@ -6,8 +6,12 @@ public struct WindMarket {
     public init() {}
 
     public func indices(apiKey: String) async throws -> [WindQuote] {
-        let instruments = WatchItem.indices.map(\.code)
-        return try await snapshots(instruments, domain: .index, tool: "get_index_price_indicators", apiKey: apiKey)
+        try await indices(WatchItem.indices.map(\.code), apiKey: apiKey)
+    }
+
+    public func indices(_ codes: [String], apiKey: String) async throws -> [WindQuote] {
+        guard !codes.isEmpty else { return [] }
+        return try await snapshots(codes, domain: .index, tool: "get_index_price_indicators", apiKey: apiKey)
     }
 
     public func stocks(_ codes: [String], apiKey: String) async throws -> [WindQuote] {
@@ -16,16 +20,28 @@ public struct WindMarket {
     }
 
     public func searchStocks(_ query: String, apiKey: String) async throws -> [WatchItem] {
+        try await search(query, apiKey: apiKey, maxCount: 10) {
+            try QuoteParser.parseSymbols($0, stocksOnly: true)
+        }
+    }
+
+    public func searchIndices(_ query: String, apiKey: String) async throws -> [WatchItem] {
+        try await search(query, apiKey: apiKey, maxCount: 20, parse: QuoteParser.parseIndexSymbols)
+    }
+
+    private func search(
+        _ query: String, apiKey: String, maxCount: Int, parse: ([String: Any]) throws -> [WatchItem]
+    ) async throws -> [WatchItem] {
         guard query.count <= 80, !query.contains(","), !query.contains("，"),
               !query.contains(where: \.isNewline) else { throw WindError.noQuote }
         let client = WindMCP(.global, apiKey: apiKey)
         try await client.connect()
         let result = try await client.call("securities_entities_lookup", arguments: [
             "keyword": query,
-            "maxCount": 10,
+            "maxCount": maxCount,
         ])
         do {
-            return try QuoteParser.parseSymbols(result, stocksOnly: true).map { item in
+            return try parse(result).map { item in
                 WatchItem(code: item.code, name: item.name, market: item.market ?? Self.marketName(item.code))
             }
         } catch WindError.noQuote {
@@ -126,19 +142,28 @@ public struct WindMarket {
             ])
             quotes += try QuoteParser.parse(result)
         }
-        let isIndex = domain == .index
-        let returned = quotes.compactMap { quote -> WindQuote? in
+        if domain == .index { return Self.matchIndexQuotes(quotes, to: codes) }
+        return quotes.compactMap { quote -> WindQuote? in
             guard quote.price > 0 else { return nil }
-            if isIndex {
-                guard let matched = codes.first(where: { code in
-                    code == quote.code.uppercased() || code.split(separator: ".").first == Substring(quote.code.uppercased())
-                }) else { return nil }
-                return quote.normalized(code: matched)
-            }
             let code = quote.code.uppercased()
             return quote.normalized(code: code, currency: quote.currency ?? Self.stockCurrency(code))
         }
-        return returned
+    }
+
+    static func matchIndexQuotes(_ quotes: [WindQuote], to codes: [String]) -> [WindQuote] {
+        let requested = Set(codes.map { $0.uppercased() })
+        let byTicker = Dictionary(grouping: requested) { $0.prefix(while: { $0 != "." }) }
+        let positiveQuotes = quotes.filter { $0.price > 0 }
+        let exactMatches = requested.intersection(positiveQuotes.map { $0.code.uppercased() })
+        return positiveQuotes.compactMap { quote in
+            let code = quote.code.uppercased()
+            if requested.contains(code) { return quote.normalized(code: code) }
+            // Some index replies omit the exchange suffix. Resolve those only
+            // against a unique requested ticker and prefer the qualified quote.
+            guard !code.contains("."), let candidates = byTicker[code[...]], candidates.count == 1,
+                  let matched = candidates.first, !exactMatches.contains(matched) else { return nil }
+            return quote.normalized(code: matched)
+        }
     }
 
     private enum Instrument: String {

@@ -11,9 +11,17 @@ public enum QuoteParser {
     }
 
     public static func parseSymbols(_ result: [String: Any], stocksOnly: Bool = false) throws -> [WatchItem] {
+        try parseSymbols(result, categories: stocksOnly ? equityCategories : nil)
+    }
+
+    static func parseIndexSymbols(_ result: [String: Any]) throws -> [WatchItem] {
+        try parseSymbols(result, categories: indexCategories).filter { qualifiedCode($0.code) }
+    }
+
+    private static func parseSymbols(_ result: [String: Any], categories acceptedCategories: Set<String>?) throws -> [WatchItem] {
         try parseResult(result, allowEmpty: true, decode: { row in
-            if stocksOnly {
-                guard let type = string(first(row, categories)), equityCategories.contains(key(type)) else { return nil }
+            if let acceptedCategories {
+                guard let type = string(first(row, categories)), acceptedCategories.contains(key(type)) else { return nil }
             }
             guard let code = instrumentCode(row), let name = string(first(row, names)) else { return nil }
             return WatchItem(code: code, name: name, market: string(first(row, markets)))
@@ -65,9 +73,10 @@ public enum QuoteParser {
     private static let currencies = ["报价币种", "计价货币", "报价货币", "交易币种", "币种", "货币", "quotecurrency", "currency"]
     private static let units = ["报价单位", "计价单位", "价格单位", "单位", "priceunit", "quoteunit", "indicatorunits", "unit"]
     // Lookup categories are a provider reference value, with no published complete enum.
-    // An unfamiliar or missing category is left out of stock-only searches.
+    // An unfamiliar or missing category is left out of typed searches.
     private static let categories = ["category", "securitytype", "assettype", "证券类型", "证券类别", "资产类别"]
     private static let equityCategories: Set<String> = ["股票", "a股", "b股", "港股", "美股", "沪深a股", "北交所股票", "普通股", "stock", "stocks", "equity", "equities", "commonstock"]
+    private static let indexCategories: Set<String> = ["指数", "市场指数", "股票指数", "index", "indices", "marketindex", "stockindex"]
     private static let markets = ["市场", "交易市场", "交易所", "market", "exchange", "marketname"]
     private static let statuses = ["交易状态", "市场状态", "tradingstatus", "tradestatus", "marketstatus", "rttradestatus"]
     private static let dates = ["最新交易日", "交易日期", "交易日", "日期", "tradedate", "tradingdate", "rtdate", "date"]
